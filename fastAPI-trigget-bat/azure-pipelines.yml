@@ -1,0 +1,100 @@
+trigger:
+  branches:
+    include:
+    - main
+
+pool:
+  name: DevOps-Infrastructure
+  demands:
+  - agent.name -equals DevOps-Agent
+
+variables:
+- name: targetPath
+  value: 'Z:\utilities'
+- group: DevOpsUtilities
+
+stages:
+- stage: Build
+  displayName: Build Application
+  jobs:
+  - job: PrepareBuild
+    displayName: Prepare Build Artifacts
+    steps:
+    - script: |
+        .\python\python.exe python\get-pip.py --no-warn-script-location
+      displayName: Install pip
+
+    - script: |
+        .\python\python.exe -m pip install --upgrade pip --no-warn-script-location
+        .\python\python.exe -m pip install -r requirements.txt --no-warn-script-location
+      displayName: Install dependencies
+
+    - script: |
+        Copy-Item -Path ".env.example" -Destination ".env"
+      displayName: Create .env from template
+
+    - script: |
+        $content = Get-Content ".env" -Raw
+        $content = $content -replace 'AZURE_STORAGE_CONNECTION_STRING=.*', "AZURE_STORAGE_CONNECTION_STRING=$(AZURE_STORAGE_CONNECTION_STRING)"
+        $content = $content -replace 'AZURE_STORAGE_CONTAINER=.*', "AZURE_STORAGE_CONTAINER=$(AZURE_STORAGE_CONTAINER)"
+        Set-Content ".env" -Value $content
+      displayName: Replace tokens in .env
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.SourcesDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+      displayName: Publish build artifacts
+
+- stage: Deploy
+  displayName: Deploy to Local Server
+  dependsOn: Build
+  jobs:
+  - job: DeployApp
+    displayName: Deploy FastAPI App
+    steps:
+    - task: DownloadBuildArtifacts@1
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(System.ArtifactsDirectory)'
+      displayName: Download build artifacts
+
+    - script: |
+        if (Test-Path "$(targetPath)") {
+          Remove-Item -Path "$(targetPath)\*" -Recurse -Force
+        } else {
+          New-Item -Path "$(targetPath)" -ItemType Directory -Force
+        }
+      displayName: Prepare deployment directory
+
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: '$(System.ArtifactsDirectory)/drop'
+        Contents: '**'
+        TargetFolder: '$(targetPath)'
+        CleanTargetFolder: false
+      displayName: Copy application files
+
+    - script: |
+        $process = Get-Process -Name "python" -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*$(targetPath)*" }
+        if ($process) {
+          Stop-Process -Id $process.Id -Force
+          Start-Sleep -Seconds 2
+        }
+      displayName: Stop existing app
+
+    - script: |
+        cd "$(targetPath)"
+        Start-Process -FilePath "$(targetPath)\python\python.exe" -ArgumentList "main.py" -WindowStyle Hidden
+        Start-Sleep -Seconds 3
+        $healthCheck = try { Invoke-WebRequest -Uri "http://localhost:8000/health" -UseBasicParsing -TimeoutSec 5 } catch { $null }
+        if ($healthCheck -and $healthCheck.StatusCode -eq 200) {
+          Write-Host "Application started successfully"
+        } else {
+          Write-Error "Application failed to start"
+          exit 1
+        }
+      displayName: Start application and verify
