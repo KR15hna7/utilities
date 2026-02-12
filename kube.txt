@@ -1,0 +1,7 @@
+kubectl logs -n kube-system -l app.kubernetes.io/name=rke2-ingress-nginx-controller --tail=100 | Select-String "qa-dashboard"
+
+# From inside the cluster, test the services directly
+kubectl run curl-test --rm -i --tty --image=curlimages/curl -- curl -v http://qe-dashboard-ui-svc.qe-dashboard.svc.cluster.local:3000/
+
+# Test backend directly
+kubectl run curl-test2 --rm -i --tty --image=curlimages/curl -- curl -v http://qe-dashboard-backend-svc.qe-dashboard.svc.cluster.local:8000/api/health
