@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "azp-agent.name" . }}
+  labels:
+    {{- include "azp-agent.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "azp-agent.name" . }}
+  replicas: {{ .Values.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "azp-agent.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "azp-agent.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: AZP_URL
+              value: {{ .Values.azp.url | quote }}
+            - name: AZP_POOL
+              value: {{ .Values.azp.pool | quote }}
+            - name: AZP_AGENT_PREFIX
+              value: {{ .Values.azp.agentNamePrefix | quote }}
+            - name: AZP_WORK
+              value: /azp/_work
+            - name: AZP_TOKEN_FILE
+              value: /var/run/secrets/azp/token
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: work
+              mountPath: /azp/_work
+            - name: token
+              mountPath: /var/run/secrets/azp
+              readOnly: true
+      volumes:
+        - name: work
+          emptyDir:
+            sizeLimit: {{ .Values.workSizeLimit }}
+        - name: token
+          secret:
+            secretName: {{ include "azp-agent.secretName" . }}
+            defaultMode: 0440
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
