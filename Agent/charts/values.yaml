@@ -1,0 +1,37 @@
+image:
+  repository: <acr-name>.azurecr.io/azp-agent
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+azp:
+  url: https://dev.azure.com/<org>
+  pool: Default
+  # Agent name is [<agentNamePrefix>-]<release>-<ordinal>; keep the total under 64 characters.
+  agentNamePrefix: ""
+
+# Name of an existing Secret holding the PAT under the key `token`.
+# If empty, a Secret is created from `token` below (avoid committing real values).
+existingSecret: ""
+token: ""
+
+replicas: 1
+
+# Must exceed the 10 x 30s agent-removal retry loop in start.sh.
+terminationGracePeriodSeconds: 330
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+    ephemeral-storage: 2Gi
+  limits:
+    memory: 1Gi
+    ephemeral-storage: 5Gi
+
+workSizeLimit: 4Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
