@@ -1,0 +1,47 @@
+trigger:
+  branches:
+    include: [main]
+  paths:
+    include: [Dockerfile, start.sh]
+
+schedules:
+  - cron: "0 3 * * 1"
+    displayName: Weekly rebuild
+    branches:
+      include: [main]
+    always: true
+
+parameters:
+  - name: agentVersion
+    displayName: Agent version ('latest' resolves the newest release)
+    type: string
+    default: latest
+
+variables:
+  acrServiceConnection: <docker-registry-service-connection>
+  imageRepository: azp-agent
+
+name: $(Date:yyyyMMdd)$(Rev:.r)
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - bash: |
+      version="${{ parameters.agentVersion }}"
+      if [ "$version" = "latest" ]; then
+        version="$(curl -fsSL https://api.github.com/repos/microsoft/azure-pipelines-agent/releases/latest | jq -r .tag_name | sed 's/^v//')"
+      fi
+      echo "##vso[task.setvariable variable=resolvedAgentVersion]$version"
+    displayName: Resolve agent version
+
+  - task: Docker@2
+    displayName: Build and push
+    inputs:
+      command: buildAndPush
+      containerRegistry: $(acrServiceConnection)
+      repository: $(imageRepository)
+      Dockerfile: Dockerfile
+      buildContext: $(Build.SourcesDirectory)
+      arguments: --build-arg AGENT_VERSION=$(resolvedAgentVersion)
+      tags: $(resolvedAgentVersion)-$(Build.BuildNumber)
